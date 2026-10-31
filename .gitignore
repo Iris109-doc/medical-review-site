@@ -1,0 +1,7 @@
+node_modules/
+.browser-cache/
+tests/temporary-*.json
+*.log
+
+medical-review-preview.html
+preview-*.png

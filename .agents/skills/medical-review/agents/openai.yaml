@@ -1,0 +1,4 @@
+interface:
+  display_name: "医学互动复习"
+  short_description: "60分钟医学复习：模块互动、简答与20题单选、错题分析及一张精简卡片"
+  default_prompt: "使用 $medical-review，以我上传的医学PPT和笔记为主要依据，开始本节60分钟互动复习。"

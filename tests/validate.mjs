@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {validateCourses,validateState,emptyState,mergeCourses,mergeStates,latestAttempts} from '../model.js';
+const {courses}=JSON.parse(await readFile(new URL('../data/courses.json',import.meta.url),'utf8'));
+validateCourses(courses);const c=courses[0];assert.equal(c.questions.filter(q=>q.type==='mcq').length,100);assert.equal(c.card.rows.length,10);
+const clone=()=>structuredClone(courses);
+let bad=clone();bad[0].questions[0].answer=9;assert.throws(()=>validateCourses(bad));
+bad=clone();bad[0].questions[1].prompt=bad[0].questions[0].prompt;assert.throws(()=>validateCourses(bad));
+bad=clone();bad[0].questions[0].sources[0].pages=[10000];assert.throws(()=>validateCourses(bad));
+assert.equal(mergeCourses(courses,courses).skipped,1);
+bad=clone();bad[0].title='conflict';assert.throws(()=>mergeCourses(courses,bad));bad[0].revision=2;assert.equal(mergeCourses(courses,bad).updated,1);
+const s=emptyState(),q=c.questions[0];s.attempts.push({id:'test-a',courseId:c.id,revision:1,questionId:q.id,correct:false,selected:(q.answer+1)%4,at:1});validateState(s,courses);
+const s2=structuredClone(s);s2.attempts.push({id:'test-b',courseId:c.id,revision:1,questionId:q.id,correct:true,selected:q.answer,at:2});const merged=mergeStates(s,s2,courses);assert.equal(merged.attempts.length,2);assert.equal(latestAttempts(merged,c.id).get(q.id).correct,true);
+const v2=clone();v2[0].revision=2;assert.equal(mergeStates(merged,emptyState(),v2).attempts.length,0);
+const malicious=structuredClone(s);malicious.attempts[0].correct=true;assert.throws(()=>validateState(malicious,courses));
+console.log('PASS: content structure, 100 MCQ + short answers, references, duplicate detection, revision conflicts, scoring, history and merge');
