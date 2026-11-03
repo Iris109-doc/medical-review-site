@@ -7,10 +7,16 @@ const clone=()=>structuredClone(courses);
 let bad=clone();bad[0].questions[0].answer=9;assert.throws(()=>validateCourses(bad));
 bad=clone();bad[0].questions[1].prompt=bad[0].questions[0].prompt;assert.throws(()=>validateCourses(bad));
 bad=clone();bad[0].questions[0].sources[0].pages=[10000];assert.throws(()=>validateCourses(bad));
-assert.equal(mergeCourses(courses,courses).skipped,1);
+assert.equal(mergeCourses(courses,courses).skipped,courses.length);
 bad=clone();bad[0].title='conflict';assert.throws(()=>mergeCourses(courses,bad));bad[0].revision=2;assert.equal(mergeCourses(courses,bad).updated,1);
 const s=emptyState(),q=c.questions[0];s.attempts.push({id:'test-a',courseId:c.id,revision:1,questionId:q.id,correct:false,selected:(q.answer+1)%4,at:1});validateState(s,courses);
 const s2=structuredClone(s);s2.attempts.push({id:'test-b',courseId:c.id,revision:1,questionId:q.id,correct:true,selected:q.answer,at:2});const merged=mergeStates(s,s2,courses);assert.equal(merged.attempts.length,2);assert.equal(latestAttempts(merged,c.id).get(q.id).correct,true);
 const v2=clone();v2[0].revision=2;assert.equal(mergeStates(merged,emptyState(),v2).attempts.length,0);
 const malicious=structuredClone(s);malicious.attempts[0].correct=true;assert.throws(()=>validateState(malicious,courses));
 console.log('PASS: content structure, 100 MCQ + short answers, references, duplicate detection, revision conflicts, scoring, history and merge');
+
+const ac=courses.find(c=>c.id==='derm-autoimmune-skin');assert.ok(ac);assert.equal(ac.revision,1);assert.equal(ac.questions.filter(q=>q.type==='mcq').length,100);assert.equal(ac.questions.filter(q=>q.type==='short').length,12);assert.equal(ac.card.rows.length,10);
+const incoming=JSON.parse(await readFile(new URL('../data/autoimmune-skin-v1.json',import.meta.url),'utf8'));validateCourses(incoming.courses);assert.deepEqual(incoming.courses[0],ac);
+const retained=courses.filter(c=>c.id!==ac.id);assert.equal(mergeCourses(retained,incoming.courses).added,1);assert.equal(mergeCourses(courses,incoming.courses).skipped,1);
+const oldState=emptyState();oldState.attempts.push({id:'retained-a',courseId:c.id,revision:c.revision,questionId:q.id,correct:true,selected:q.answer,at:1});assert.equal(mergeStates(oldState,emptyState(),courses).attempts.length,1);
+console.log('PASS: new course bundle, 100 MCQ + 12 short, one card, additive import and original course history preserved');
