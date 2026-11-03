@@ -20,3 +20,34 @@ const incoming=JSON.parse(await readFile(new URL('../data/autoimmune-skin-v1.jso
 const retained=courses.filter(c=>c.id!==ac.id);assert.equal(mergeCourses(retained,incoming.courses).added,1);assert.equal(mergeCourses(courses,incoming.courses).skipped,1);
 const oldState=emptyState();oldState.attempts.push({id:'retained-a',courseId:c.id,revision:c.revision,questionId:q.id,correct:true,selected:q.answer,at:1});assert.equal(mergeStates(oldState,emptyState(),courses).attempts.length,1);
 console.log('PASS: new course bundle, 100 MCQ + 12 short, one card, additive import and original course history preserved');
+
+const inf=courses.find(c=>c.id==='derm-infectious-skin');assert.ok(inf);
+assert.equal(inf.revision,1);assert.equal(inf.nodes.length,17);
+const im=inf.questions.filter(q=>q.type==='mcq');
+assert.equal(im.length,100);assert.equal(inf.questions.filter(q=>q.type==='short').length,12);
+assert.equal(inf.card.rows.length,12);assert.ok(inf.nodes.every(n=>n.weak===false));
+assert.equal(new Set(im.map(q=>q.objective)).size,100);
+for(let i=0;i<4;i++)assert.equal(im.filter(q=>q.answer===i).length,25);
+const ib=JSON.parse(await readFile(new URL('../data/infectious-skin-v1.json',import.meta.url),'utf8'));
+assert.deepEqual(Object.keys(ib).sort(),['courses','kind','schemaVersion']);
+validateCourses(ib.courses);assert.deepEqual(ib.courses,[inf]);
+for(const name of ['attempts','state','userAnswer','userAnswerVerbatim','results','mastery','archivedOn']){
+ assert.ok(!JSON.stringify(ib).includes(`"${name}":`),`private field ${name}`);
+}
+const withoutInf=courses.filter(c=>c.id!==inf.id);
+const additive=mergeCourses(withoutInf,ib.courses);
+assert.equal(additive.added,1);assert.deepEqual(additive.courses,courses);
+assert.equal(mergeCourses(courses,ib.courses).skipped,1);
+const stateWithBoth=structuredClone(oldState);
+stateWithBoth.attempts.push({id:'inf-test',courseId:inf.id,revision:1,questionId:im[0].id,correct:true,selected:im[0].answer,at:2});
+stateWithBoth.read[`${c.id}/${c.nodes[0].id}`]=true;
+stateWithBoth.mastery[`${c.id}/${c.nodes[0].id}`]='learning';
+validateState(stateWithBoth,courses);
+const infUpdate=structuredClone(ib.courses);infUpdate[0].revision=2;
+const afterVersion=mergeStates(stateWithBoth,emptyState(),mergeCourses(courses,infUpdate).courses);
+assert.deepEqual(afterVersion.attempts,oldState.attempts);
+assert.equal(afterVersion.read[`${c.id}/${c.nodes[0].id}`],true);
+assert.equal(afterVersion.mastery[`${c.id}/${c.nodes[0].id}`],'learning');
+const conflicting=structuredClone(ib.courses);conflicting[0].questions[0].options[0]+='冲突';
+assert.throws(()=>mergeCourses(courses,conflicting),/同版本内容冲突/);
+console.log('PASS: infectious course, 100 distinct objectives, balanced answers, public bundle, additive/duplicate import and revision isolation');
