@@ -36,7 +36,8 @@ for(const name of ['attempts','state','userAnswer','userAnswerVerbatim','results
 }
 const withoutInf=courses.filter(c=>c.id!==inf.id);
 const additive=mergeCourses(withoutInf,ib.courses);
-assert.equal(additive.added,1);assert.deepEqual(additive.courses,courses);
+assert.equal(additive.added,1);
+assert.deepEqual([...additive.courses].sort((a,b)=>a.id.localeCompare(b.id)),[...courses].sort((a,b)=>a.id.localeCompare(b.id)));
 assert.equal(mergeCourses(courses,ib.courses).skipped,1);
 const stateWithBoth=structuredClone(oldState);
 stateWithBoth.attempts.push({id:'inf-test',courseId:inf.id,revision:1,questionId:im[0].id,correct:true,selected:im[0].answer,at:2});
@@ -51,3 +52,39 @@ assert.equal(afterVersion.mastery[`${c.id}/${c.nodes[0].id}`],'learning');
 const conflicting=structuredClone(ib.courses);conflicting[0].questions[0].options[0]+='冲突';
 assert.throws(()=>mergeCourses(courses,conflicting),/同版本内容冲突/);
 console.log('PASS: infectious course, 100 distinct objectives, balanced answers, public bundle, additive/duplicate import and revision isolation');
+
+const tumor=courses.find(c=>c.id==='derm-skin-tumors');assert.ok(tumor);
+assert.equal(tumor.revision,1);assert.equal(tumor.nodes.length,16);
+const tm=tumor.questions.filter(q=>q.type==='mcq');
+assert.equal(tm.length,100);assert.equal(tumor.questions.filter(q=>q.type==='short').length,12);
+assert.equal(tumor.card.rows.length,10);assert.ok(tumor.nodes.every(n=>n.weak===false));
+assert.ok(tumor.card.rows.every(r=>!r.label.includes('★')));
+assert.equal(new Set(tm.map(q=>q.objective)).size,100);
+assert.equal(new Set(tumor.questions.map(q=>q.id)).size,112);
+for(let i=0;i<4;i++)assert.equal(tm.filter(q=>q.answer===i).length,25);
+const tb=JSON.parse(await readFile(new URL('../data/skin-tumors-v1.json',import.meta.url),'utf8'));
+assert.deepEqual(Object.keys(tb).sort(),['courses','kind','schemaVersion']);
+validateCourses(tb.courses);assert.deepEqual(tb.courses,[tumor]);
+const privateFields=new Set(['attempts','state','userAnswer','userAnswerVerbatim','results','mastery','archivedOn','selected','score']);
+function publicOnly(value){if(Array.isArray(value)){value.forEach(publicOnly)}else if(value&&typeof value==='object'){for(const [key,v]of Object.entries(value)){assert.ok(!privateFields.has(key),`private field ${key}`);publicOnly(v)}}}
+publicOnly(tb);
+const withoutTumor=courses.filter(c=>c.id!==tumor.id);
+const addedTumor=mergeCourses(withoutTumor,tb.courses);
+assert.equal(addedTumor.added,1);assert.deepEqual(addedTumor.courses,courses);
+assert.equal(mergeCourses(courses,tb.courses).skipped,1);
+const retainedState=emptyState();
+for(const old of withoutTumor){const oq=old.questions.find(q=>q.type==='mcq');retainedState.attempts.push({id:`retained-${old.id}`,courseId:old.id,revision:old.revision,questionId:oq.id,correct:true,selected:oq.answer,at:1})}
+assert.deepEqual(mergeStates(retainedState,emptyState(),addedTumor.courses),retainedState);
+const tumorState=structuredClone(retainedState);
+tumorState.attempts.push({id:'tumor-v1-test',courseId:tumor.id,revision:1,questionId:tm[0].id,correct:true,selected:tm[0].answer,at:2});
+tumorState.read[`${withoutTumor[0].id}/${withoutTumor[0].nodes[0].id}`]=true;
+const tumorV2=structuredClone(tb.courses);tumorV2[0].revision=2;
+const versioned=mergeStates(tumorState,emptyState(),mergeCourses(courses,tumorV2).courses);
+assert.deepEqual(versioned.attempts,retainedState.attempts);assert.deepEqual(versioned.read,tumorState.read);
+const tumorConflict=structuredClone(tb.courses);tumorConflict[0].questions[0].prompt+='冲突';
+assert.throws(()=>mergeCourses(courses,tumorConflict),/同版本内容冲突/);
+// Exact normalized duplicate detection across the entire public MCQ collection.
+const normalize=s=>s.replace(/[\s，。？！、：:,.!?“”‘’（）()]/g,'').toLowerCase();
+const allPrompts=courses.flatMap(c=>c.questions.filter(q=>q.type==='mcq').map(q=>normalize(q.prompt)));
+assert.equal(new Set(allPrompts).size,allPrompts.length);
+console.log('PASS: skin tumors, 100 distinct objectives, 12 short, public-only bundle, balanced answers, additive imports and version isolation across four courses');

@@ -1,12 +1,14 @@
-"""Exercise adding the public course to an already-used browser, without user data."""
+"""Exercise public-course import in a temporary browser. Optional argument: bundle filename."""
 import json
+import sys
 import tempfile
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 content = json.loads((ROOT / 'data/courses.json').read_text())
-new = next(c for c in content['courses'] if c['id'] == 'derm-infectious-skin')
+bundle_path = ROOT / 'data' / (sys.argv[1] if len(sys.argv) > 1 else 'infectious-skin-v1.json')
+new = json.loads(bundle_path.read_text())['courses'][0]
 old = {**content, 'courses': [c for c in content['courses'] if c['id'] != new['id']]}
 oldq = old['courses'][0]['questions'][0]
 newq = next(q for q in new['questions'] if q['type'] == 'mcq')
@@ -18,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='infectious-browser-') as tmp, sync_play
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.on('dialog', lambda d: d.accept())
-    # Simulate a browser which loaded the previous two-course release.
+    # Simulate an existing browser without this course, retaining all others.
     page.route('**/data/courses.json', lambda route: route.fulfill(json=old))
     page.goto('http://127.0.0.1:4173')
     page.get_by_role('heading', name='把知识，梳理成自己的体系。').wait_for()
@@ -30,7 +32,7 @@ with tempfile.TemporaryDirectory(prefix='infectious-browser-') as tmp, sync_play
     page.unroute('**/data/courses.json')
     page.reload()
     page.locator('nav [data-page="cards"]').click()
-    assert page.locator('.card-table').count() == 2  # New server JSON does not overwrite IndexedDB.
+    assert page.locator('.card-table').count() == len(old['courses'])  # Server JSON does not overwrite IndexedDB.
 
     def export_state(filename):
         page.locator('nav [data-page="settings"]').click()
@@ -42,16 +44,16 @@ with tempfile.TemporaryDirectory(prefix='infectious-browser-') as tmp, sync_play
 
     before, _ = export_state('before.json')
     assert len(before['state']['attempts']) == 1
-    page.locator('#import-file').set_input_files(str(ROOT / 'data/infectious-skin-v1.json'))
+    page.locator('#import-file').set_input_files(str(bundle_path))
     page.locator('#import-result').get_by_text('新增 1', exact=False).wait_for()
     imported, _ = export_state('imported.json')
     assert imported['state'] == before['state']
-    assert len(imported['courses']) == 3
-    page.locator('#import-file').set_input_files(str(ROOT / 'data/infectious-skin-v1.json'))
+    assert len(imported['courses']) == len(content['courses'])
+    page.locator('#import-file').set_input_files(str(bundle_path))
     page.locator('#import-result').get_by_text('跳过 1', exact=False).wait_for()
 
     # Reject same-version conflicts without altering stored state or course contents.
-    conflict = json.loads((ROOT / 'data/infectious-skin-v1.json').read_text())
+    conflict = json.loads(bundle_path.read_text())
     conflict['courses'][0]['title'] += '冲突'
     badpath = Path(tmp) / 'conflict.json'
     badpath.write_text(json.dumps(conflict))
@@ -66,12 +68,12 @@ with tempfile.TemporaryDirectory(prefix='infectious-browser-') as tmp, sync_play
         page.locator('#course-filter').select_option(new['id'])
 
     tab('library')
-    assert page.locator('#nodes article').count() == 17
+    assert page.locator('#nodes article').count() == len(new['nodes'])
     tab('cards')
     assert page.locator('.card-table').count() == 1
-    assert page.locator('.card-table tbody tr').count() == 12
+    assert page.locator('.card-table tbody tr').count() == len(new['card']['rows'])
     page.get_by_role('button', name='翻开全部答案', exact=True).click()
-    page.screenshot(path=str(ROOT / 'preview-infectious-card.png'), full_page=True)
+    page.screenshot(path=str(ROOT / f'preview-{new["id"]}-card.png'), full_page=True)
     tab('practice')
     assert '匹配 100 题' in page.locator('.bank-note').inner_text()
     # Traverse all ten pages: all 100 questions are reachable and explanations start hidden.
@@ -141,6 +143,23 @@ with tempfile.TemporaryDirectory(prefix='infectious-browser-') as tmp, sync_play
         for name in ['library','cards','practice','weak']:
             tab(name)
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1'), (width,name)
+
+    # Revision upgrades clear only this course's obsolete attempts, preserving prior records.
+    revised = json.loads(bundle_path.read_text())
+    revised['courses'][0]['revision'] = 2
+    revision_path = Path(tmp) / 'revision-2.json'
+    revision_path.write_text(json.dumps(revised))
+    page.locator('nav [data-page="settings"]').click()
+    page.locator('#import-file').set_input_files(str(revision_path))
+    page.locator('#import-result').get_by_text('更新 1', exact=False).wait_for()
+    upgraded, _ = export_state('upgraded.json')
+    assert upgraded['state']['attempts'] == before['state']['attempts']
+    assert upgraded['state']['read'] == before['state']['read']
+    page.locator('#import-file').set_input_files(str(bundle_path))
+    page.locator('#import-result').get_by_text('跳过 1', exact=False).wait_for()
+    after_old_import, _ = export_state('after-old-import.json')
+    assert after_old_import['courses'] == upgraded['courses']
+    assert after_old_import['state'] == upgraded['state']
     assert not errors, errors
     browser.close()
-    print('PASS: existing-browser upgrade, prior history preserved, duplicate/conflict import, 100 reachable MCQs, one card, reveal/scoring/persistence, short self-grade, backup restore, sources and 3 viewport layouts; no JS errors.')
+    print(f'PASS {new["id"]}: existing-browser upgrade, prior history preserved, duplicate/conflict import, 100 reachable MCQs, one card, reveal/scoring/persistence, short self-grade, backup restore, source jump, revision isolation and 3 viewport layouts; no JS errors.')
