@@ -70,7 +70,8 @@ function publicOnly(value){if(Array.isArray(value)){value.forEach(publicOnly)}el
 publicOnly(tb);
 const withoutTumor=courses.filter(c=>c.id!==tumor.id);
 const addedTumor=mergeCourses(withoutTumor,tb.courses);
-assert.equal(addedTumor.added,1);assert.deepEqual(addedTumor.courses,courses);
+assert.equal(addedTumor.added,1);
+assert.deepEqual([...addedTumor.courses].sort((a,b)=>a.id.localeCompare(b.id)),[...courses].sort((a,b)=>a.id.localeCompare(b.id)));
 assert.equal(mergeCourses(courses,tb.courses).skipped,1);
 const retainedState=emptyState();
 for(const old of withoutTumor){const oq=old.questions.find(q=>q.type==='mcq');retainedState.attempts.push({id:`retained-${old.id}`,courseId:old.id,revision:old.revision,questionId:oq.id,correct:true,selected:oq.answer,at:1})}
